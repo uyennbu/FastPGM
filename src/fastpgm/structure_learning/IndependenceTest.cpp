@@ -167,10 +167,7 @@ IndependenceTest::Result IndependenceTest::ComputeGSquareXYZGroup(int x_idx, int
     int dimx = dataset->num_of_possible_values_of_disc_vars[x_idx];
     int dimy = dataset->num_of_possible_values_of_disc_vars[y_idx];
 
-    bool results[8];
-    for (int i = 0; i < 8; ++i) {
-        results[i] = false;
-    }
+    vector<bool> results(c_size, false);
 
     vector<int> cond_dims;
     cond_dims.reserve(z.size());
