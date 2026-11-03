@@ -142,6 +142,7 @@ void PCStable::StructLearnByPCStable(Dataset *dts, int num_threads, int group_si
                  << ", conditioning sets of size 0." << endl;
         }
 
+#pragma omp atomic
         num_ci_test++;
         IndependenceTest *ci_test = new IndependenceTest(dts, alpha);
         IndependenceTest::Result result = ci_test->IndependenceResult(node_idx1, node_idx2, vector<int>(),
@@ -171,6 +172,7 @@ void PCStable::StructLearnByPCStable(Dataset *dts, int num_threads, int group_si
             // 1. delete the edge 2. remove each other from adjacency set
             // (1 and 2 will be done in the loop below)
             // 3. add conditioning set (an empty set for level 0) to sepset
+#pragma omp critical
             sepset.insert(make_pair(make_pair(node_idx1, node_idx2), set<int>()));
 //            sepset.insert(make_pair(make_pair(node_idx2, node_idx1), set<int>()));
         }
@@ -558,6 +560,7 @@ bool PCStable::Testing(Dataset *dts, int c_depth, int edge_idx, int x_idx, int y
         } // i means the number of valid conditioning set in this group when existing the loop
         // i != group_size (i < group_size) only when for the last group of the edge
 
+#pragma omp atomic
         num_ci_test += i;
         IndependenceTest *ci_test = new IndependenceTest(dts, alpha);
         IndependenceTest::Result result = ci_test->IndependenceResult(x_idx, y_idx, Z, "g square",
@@ -580,6 +583,7 @@ bool PCStable::Testing(Dataset *dts, int c_depth, int edge_idx, int x_idx, int y
             for (int j = 0; j < c_depth; ++j) {
                 conditioning_set.insert(network->vec_edges[edge_idx].vec_adj[choices[first_id][j]]);
             }
+#pragma omp critical
             sepset.insert(make_pair(make_pair(node_idx1, node_idx2), conditioning_set));
 
             if (verbose > 1) {
