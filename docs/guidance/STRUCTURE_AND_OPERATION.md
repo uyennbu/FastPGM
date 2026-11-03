@@ -229,4 +229,3 @@ SHD = 5
    * `pc-stable`: **Tổng thời gian thực thi toàn bộ thuật toán PC-Stable** (`0.113678` giây). Đây là con số dùng để báo cáo trong các bảng thực nghiệm của bài báo.
    * `SHD = 5` (*Structural Hamming Distance*): Khoảng cách khác biệt cấu trúc giữa mạng học được và mạng chuẩn `alarm.bif` (số cạnh bị thiếu, thừa hoặc ngược chiều). **SHD càng nhỏ thì cấu trúc học được càng chính xác** (bằng `0` là giống hệt mạng gốc).
 
-
