@@ -170,11 +170,8 @@ void PCStable::StructLearnByPCStable(Dataset *dts, int num_threads, int group_si
             network->vec_edges[i].need_remove = true;
             // the edge node1 -- node2 should be removed
             // 1. delete the edge 2. remove each other from adjacency set
-            // (1 and 2 will be done in the loop below)
             // 3. add conditioning set (an empty set for level 0) to sepset
-#pragma omp critical
-            sepset.insert(make_pair(make_pair(node_idx1, node_idx2), set<int>()));
-//            sepset.insert(make_pair(make_pair(node_idx2, node_idx1), set<int>()));
+            // (1, 2 and 3 will be done in the sequential loop below)
         }
     }
 
@@ -191,7 +188,8 @@ void PCStable::StructLearnByPCStable(Dataset *dts, int num_threads, int group_si
             // 2. remove each other from adjacency set
             adjacencies[node_idx1].erase(node_idx2);
             adjacencies[node_idx2].erase(node_idx1);
-            // 3. add conditioning set (an empty set for level 0) to sepset (is done in the loop above)
+            // 3. add conditioning set (an empty set for level 0) to sepset
+            sepset.insert(make_pair(make_pair(node_idx1, node_idx2), set<int>()));
             i--;
         }
     }
