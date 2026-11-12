@@ -82,31 +82,35 @@ string TrimRight(string s) {
 }
 
 string TrimRightComma(string s) {
-    if (s[s.size()-1] == 44) { // ASCII: ,=44
+    s = Trim(s);
+    if (!s.empty() && s[s.size()-1] == 44) { // ASCII: ,=44
         s.erase(s.size()-1);
     }
-    return s;
+    return Trim(s);
 }
 
 string TrimLeftParenthesis(string s) {
+    s = Trim(s);
     if (!s.empty() && s[0] == 40) { // ASCII: (=40
         s.erase(0, 1);
     }
-    return s;
+    return Trim(s);
 }
 
 string TrimRightCommaAndParenthesis(string s) {
-    if (s[s.size()-1] == 44 || s[s.size()-1] == 41) { // ASCII: )=41; ,=44
+    s = Trim(s);
+    if (!s.empty() && (s[s.size()-1] == 44 || s[s.size()-1] == 41)) { // ASCII: )=41; ,=44
         s.erase(s.size()-1);
     }
-    return s;
+    return Trim(s);
 }
 
 string TrimRightCommaAndSemicolon(string s) {
-    if (s[s.size()-1] == 44 || s[s.size()-1] == 59) { // ASCII: ;=59; ,=44
+    s = Trim(s);
+    if (!s.empty() && (s[s.size()-1] == 44 || s[s.size()-1] == 59)) { // ASCII: ;=59; ,=44
         s.erase(s.size()-1);
     }
-    return s;
+    return Trim(s);
 }
 
 /**

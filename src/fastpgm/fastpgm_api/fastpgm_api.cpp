@@ -89,6 +89,7 @@ void BNEI_JT(int verbose, int n_threads,
     SAFE_DELETE(tester);
 
     double accuracy = inference->EvaluateAccuracy(pt, n_threads);
+    (void)accuracy;
     SAFE_DELETE(inference);
     SAFE_DELETE(network);
 }

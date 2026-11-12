@@ -80,14 +80,14 @@ void CustomNetwork::LoadBIFFile(string path) {
      * }
      */
     int node_idx = 0;
-    getline(in_file, line);
-    // if there is a whitespace at the beginning  of the line
-    // it will cause a bug if we do not trim it
-    line = TrimLeft(line);
+    while (getline(in_file, line)) {
+        line = Trim(line);
+        if (!line.empty()) break;
+    }
     vector<string> parsed_line = Split(line, " ");
 
     DiscreteNode *node_ptr = nullptr;
-    while (parsed_line.at(0).compare("probability") != 0) { // it is about variable
+    while (!parsed_line.empty() && parsed_line.at(0).compare("probability") != 0) { // it is about variable
         if (parsed_line.at(0).compare("variable") == 0) { // case 1: variable BirthAsphyxia {
             node_ptr = new DiscreteNode(node_idx);
             node_ptr->node_name = parsed_line.at(1);
@@ -105,8 +105,10 @@ void CustomNetwork::LoadBIFFile(string path) {
             }
         } // do nothing for the other case
 
-        getline(in_file, line);
-        line = TrimLeft(line);
+        while (getline(in_file, line)) {
+            line = Trim(line);
+            if (!line.empty()) break;
+        }
         parsed_line = Split(line, " ");
     }
 
@@ -125,27 +127,36 @@ void CustomNetwork::LoadBIFFile(string path) {
      * it seems to have slight format difference in this part, but it does not matter since we do not care about CPTs
      */
     vector<Node*> parent_nodes;
-    Node *this_node;
+    Node *this_node = nullptr;
     while (!in_file.eof()) {
-        // these two lines have to be at the beginning of the while loop, not the end
-        line = TrimLeft(line);
+        line = Trim(line);
+        if (line.empty()) {
+            getline(in_file, line);
+            continue;
+        }
         parsed_line = Split(line, " ");
+        if (parsed_line.empty() || parsed_line.at(0).empty()) {
+            getline(in_file, line);
+            continue;
+        }
 
         if (parsed_line.at(0).compare("probability") == 0) {
             // probability ( LowerBodyO2 | HypDistrib, HypoxiaInO2 ) {
-            if (parsed_line.at(1).compare("(") != 0) {
+            if (parsed_line.size() > 1 && parsed_line.at(1).compare("(") != 0) {
                 fprintf(stderr, "Error in function [%s]\nError in format!", __FUNCTION__);
                 exit(1);
             }
 
             // 1) get this node.
-            this_node = FindNodePtrByName(parsed_line.at(2));
+            if (parsed_line.size() > 2) {
+                this_node = FindNodePtrByName(parsed_line.at(2));
+            }
             parent_nodes.clear();
 
-            if (parsed_line.at(3).compare(")") != 0) { // if this node has parent(s).
+            if (parsed_line.size() > 3 && parsed_line.at(3).compare(")") != 0) { // if this node has parent(s).
                 // 2) get the parents of the node
                 int pos = 4;
-                while (parsed_line.at(pos).compare(")") != 0) {
+                while (pos < (int)parsed_line.size() && parsed_line.at(pos).compare(")") != 0) {
                     string name = TrimRightComma(parsed_line.at(pos));
                     parent_nodes.push_back(FindNodePtrByName(name));
                     ++pos;
@@ -159,42 +170,37 @@ void CustomNetwork::LoadBIFFile(string path) {
                     ++num_edges;
                 }
             } // otherwise, it is a node with no parent
-        } else if (parsed_line.at(0).compare("}") != 0) {
+        } else if (parsed_line.at(0).compare("}") != 0 && this_node != nullptr) {
             // (Equal, Mild) 0.1, 0.3, 0.6; or: table 0.2, 0.8;
             int num_pars = parent_nodes.size(); // number of parents for this node
             int num_values = dynamic_cast<DiscreteNode *>(this_node)->possible_values_ids.size();
-            int pos;
-            DiscreteConfig comb;
-            if (num_pars > 0) { // have parents.
-                // construct `comb`: parent configuration
-                for (int i = 0; i < num_pars; ++i) { // for each of its parents
-                    // save each value of the parent
-                    string v1 = TrimLeftParenthesis(parsed_line.at(i));
-                    string v2 = TrimRightCommaAndParenthesis(v1);
-                    // find the number of this value
-                    DiscreteNode *par_ptr = dynamic_cast<DiscreteNode *>(parent_nodes[i]);
-                    int num = par_ptr->possible_values_ids[v2];
-                    comb.insert(
-                            pair<int, int>(
-                                    par_ptr->GetNodeIndex(), num));
+            int pos = (num_pars > 0) ? num_pars : 1;
+
+            if ((int)parsed_line.size() >= pos + num_values) {
+                DiscreteConfig comb;
+                if (num_pars > 0) { // have parents.
+                    // construct `comb`: parent configuration
+                    for (int i = 0; i < num_pars && i < (int)parsed_line.size(); ++i) { // for each of its parents
+                        // save each value of the parent
+                        string v1 = TrimLeftParenthesis(parsed_line.at(i));
+                        string v2 = TrimRightCommaAndParenthesis(v1);
+                        // find the number of this value
+                        DiscreteNode *par_ptr = dynamic_cast<DiscreteNode *>(parent_nodes[i]);
+                        if (par_ptr && par_ptr->possible_values_ids.find(v2) != par_ptr->possible_values_ids.end()) {
+                            int num = par_ptr->possible_values_ids[v2];
+                            comb.insert(pair<int, int>(par_ptr->GetNodeIndex(), num));
+                        }
+                    }
                 }
-                pos = num_pars;
 
-            } else { // no parent.
-                pos = 1;
-            }
-
-            // set probabilities for different values of this node given parent config `comb`.
-            for (int i = pos; i < pos + num_values; ++i) { // for each possible value of this node
-                string v = TrimRightCommaAndSemicolon(parsed_line.at(i));
-                double prob = stod(v);
-                dynamic_cast<DiscreteNode*>(this_node)->AddCount(i - pos, comb, prob*10000);
-
-//                cout << this_node->GetNodeIndex() << ", query = " << i - pos << "; ";
-//                for (const auto &p: comb) {
-//                    cout << p.first << "=" << p.second << ", ";
-//                }
-//                cout << "; " << prob*10000 << endl;
+                // set probabilities for different values of this node given parent config `comb`.
+                for (int i = pos; i < pos + num_values && i < (int)parsed_line.size(); ++i) { // for each possible value of this node
+                    string v = TrimRightCommaAndSemicolon(parsed_line.at(i));
+                    if (!v.empty()) {
+                        double prob = stod(v);
+                        dynamic_cast<DiscreteNode*>(this_node)->AddCount(i - pos, comb, prob*10000);
+                    }
+                }
             }
         }
 

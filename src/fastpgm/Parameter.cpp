@@ -43,33 +43,58 @@ void Parameter::ParseParameters(int argc, char *argv[]) {
         switch((argv[i][1]))
         {
             case 'h': PrintHelpInfo(); exit(0);
-            case 'j': i++; job = atoi(argv[i]); break;
-            case 'm': i++; method = atoi(argv[i]); break;
-            case 't': i++; num_threads = atoi(argv[i]); break;
-            case 'p': i++; parallelism_type = atoi(argv[i]); break;
-            case 'q': i++; num_samples = atoi(argv[i]); break;
+            case 'j': 
+                if (argv[i][2] != '\0') { job = atoi(&argv[i][2]); }
+                else if (i + 1 < argc) { i++; job = atoi(argv[i]); }
+                break;
+            case 'm': 
+                if (argv[i][2] != '\0') { method = atoi(&argv[i][2]); }
+                else if (i + 1 < argc) { i++; method = atoi(argv[i]); }
+                break;
+            case 't': 
+                if (argv[i][2] != '\0') { num_threads = atoi(&argv[i][2]); }
+                else if (i + 1 < argc) { i++; num_threads = atoi(argv[i]); }
+                break;
+            case 'p': 
+                if (argv[i][2] != '\0') { parallelism_type = atoi(&argv[i][2]); }
+                else if (i + 1 < argc) { i++; parallelism_type = atoi(argv[i]); }
+                break;
+            case 'q': 
+                if (argv[i][2] != '\0') { num_samples = atoi(&argv[i][2]); }
+                else if (i + 1 < argc) { i++; num_samples = atoi(argv[i]); }
+                break;
 //            case 'u': i++; max_updating = atoi(argv[i]); break;
 //            case 'l': i++; updating_interval = atoi(argv[i]); break;
 //            case 'd': i++; propagation_length = atoi(argv[i]); break;
-            case 'g': i++; group_size = atoi(argv[i]); break;
-            case 'a': i++; alpha = stod(argv[i]); break;
-            case 'c': i++; class_variable = atoi(argv[i]); break;
+            case 'g': 
+                if (argv[i][2] != '\0') { group_size = atoi(&argv[i][2]); }
+                else if (i + 1 < argc) { i++; group_size = atoi(argv[i]); }
+                break;
+            case 'a': 
+                if (argv[i][2] != '\0') { alpha = stod(&argv[i][2]); }
+                else if (i + 1 < argc) { i++; alpha = stod(argv[i]); }
+                break;
+            case 'c': 
+                if (argv[i][2] != '\0') { class_variable = atoi(&argv[i][2]); }
+                else if (i + 1 < argc) { i++; class_variable = atoi(argv[i]); }
+                break;
             case 's':
                 switch (argv[i][2]) {
-                    case 's': i++;
-                        if (atoi(argv[i]) == 0) {save_struct = false;}
+                    case 's': 
+                        if (i + 1 < argc) { i++; if (atoi(argv[i]) == 0) {save_struct = false;} }
                         break;
-                    case 'p': i++;
-                        if (atoi(argv[i]) == 0) {save_param = false;}
+                    case 'p': 
+                        if (i + 1 < argc) { i++; if (atoi(argv[i]) == 0) {save_param = false;} }
                         break;
                 }
+                break;
             case 'f':
                 switch (argv[i][2]) {
-                    case '0': i++; net_file = argv[i]; break;
-                    case '1': i++; ref_net_file = argv[i]; break;
-                    case '2': i++; train_set_file = argv[i]; break;
-                    case '3': i++; test_set_file = argv[i]; break;
-                    case '4': i++; pt_file = argv[i]; break;
+                    case '0': if (i + 1 < argc) { i++; net_file = argv[i]; } break;
+                    case '1': if (i + 1 < argc) { i++; ref_net_file = argv[i]; } break;
+                    case '2': if (i + 1 < argc) { i++; train_set_file = argv[i]; } break;
+                    case '3': if (i + 1 < argc) { i++; test_set_file = argv[i]; } break;
+                    case '4': if (i + 1 < argc) { i++; pt_file = argv[i]; } break;
                 }; break;
 
             default: printf("\n Unrecognized option %s!\n", argv[i]);
@@ -94,6 +119,7 @@ void Parameter::PrintHelpInfo() {
     cout << "Command-line options: " << endl;
     cout << "-h\tPrint this help message" << endl;
     cout << "-t\tSpecify number of threads, default 1" << endl;
+    cout << "-p\tSpecify parallelism type: 0 for CI-level, 1 for Edge-level, 2 for Sample-level, default 0 [PC-stable]" << endl;
     cout << "-v\tSpecify verbose, 0 for silence, 1 for key information and 2 for more information, default 1" << endl;
     cout << "-j & -m\tSpecify the job & method" << endl;
     PrintJobAndAlgInfo();

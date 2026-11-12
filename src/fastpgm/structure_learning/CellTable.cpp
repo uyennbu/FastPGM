@@ -280,7 +280,7 @@ void Counts3D::CountLevelN(Dataset *dataset) {
             int x = dataset->dataset_columns[indexx][k];
             int y = dataset->dataset_columns[indexy][k];
             int z = dataset->dataset_columns[cond_indices[cond_dims.size() - 1]][k];
-            for (int j = 0; j < cond_dims.size() - 1; ++j) {
+            for (size_t j = 0; j < cond_dims.size() - 1; ++j) {
                 z += dataset->dataset_columns[cond_indices[j]][k] * cum_levels[j];
             }
 #pragma omp atomic
@@ -291,7 +291,7 @@ void Counts3D::CountLevelN(Dataset *dataset) {
             int x = dataset->dataset_columns[indexx][k];
             int y = dataset->dataset_columns[indexy][k];
             int z = dataset->dataset_columns[cond_indices[cond_dims.size() - 1]][k];
-            for (int j = 0; j < cond_dims.size() - 1; ++j) {
+            for (size_t j = 0; j < cond_dims.size() - 1; ++j) {
                 z += dataset->dataset_columns[cond_indices[j]][k] * cum_levels[j];
             }
             n[z * dimx * dimy + x * dimy + y]++;

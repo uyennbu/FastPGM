@@ -3,7 +3,7 @@ project(fastpgm)
 
 add_definitions("-Wall -g")
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 
 option(USE_MPI "option for mpi" OFF)
 if (USE_MPI)
