@@ -21,6 +21,7 @@ Parameter::Parameter() {
 
     group_size = 1;
     alpha = 0.05;
+    parallelism_type = 0;
 
     class_variable = 0;
 
@@ -45,6 +46,7 @@ void Parameter::ParseParameters(int argc, char *argv[]) {
             case 'j': i++; job = atoi(argv[i]); break;
             case 'm': i++; method = atoi(argv[i]); break;
             case 't': i++; num_threads = atoi(argv[i]); break;
+            case 'p': i++; parallelism_type = atoi(argv[i]); break;
             case 'q': i++; num_samples = atoi(argv[i]); break;
 //            case 'u': i++; max_updating = atoi(argv[i]); break;
 //            case 'l': i++; updating_interval = atoi(argv[i]); break;

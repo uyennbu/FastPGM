@@ -4,6 +4,8 @@
 
 #include "fastpgm/structure_learning/CellTable.h"
 
+int sample_level_threads = 1;
+
 //int Is_exist (int item, const vector<int> &list) {
 //    for (int i = 0; i < list.size(); ++i) {
 //        if(list[i] == item) {
@@ -252,41 +254,48 @@ void Counts3D::FillTable(Dataset *dataset, Timer *timer) {
 }
 
 void Counts3D::CountLevel1(Dataset *dataset) {
-    for (int k = 0; k < dataset->num_instance; ++k) {
-//        int x = dataset->dataset_all_vars[k][indices[0]];
-//        int y = dataset->dataset_all_vars[k][indices[1]];
-        int x = dataset->dataset_columns[indexx][k];
-        int y = dataset->dataset_columns[indexy][k];
-        /**
-         * map z1, z2 ... to z
-         */
-        int z = dataset->dataset_columns[cond_indices[0]][k];
-        n[z * dimx * dimy + x * dimy + y]++;
+    if (sample_level_threads > 1) {
+#pragma omp parallel for num_threads(sample_level_threads)
+        for (int k = 0; k < dataset->num_instance; ++k) {
+            int x = dataset->dataset_columns[indexx][k];
+            int y = dataset->dataset_columns[indexy][k];
+            int z = dataset->dataset_columns[cond_indices[0]][k];
+#pragma omp atomic
+            n[z * dimx * dimy + x * dimy + y]++;
+        }
+    } else {
+        for (int k = 0; k < dataset->num_instance; ++k) {
+            int x = dataset->dataset_columns[indexx][k];
+            int y = dataset->dataset_columns[indexy][k];
+            int z = dataset->dataset_columns[cond_indices[0]][k];
+            n[z * dimx * dimy + x * dimy + y]++;
+        }
     }
 }
 
 void Counts3D::CountLevelN(Dataset *dataset) {
-    for (int k = 0; k < dataset->num_instance; ++k) {
-//        int x = dataset->dataset_all_vars[k][indices[0]];
-//        int y = dataset->dataset_all_vars[k][indices[1]];
-        int x = dataset->dataset_columns[indexx][k];
-        int y = dataset->dataset_columns[indexy][k];
-        /**
-         * map z1, z2 ... to z
-         */
-        int z = dataset->dataset_columns[cond_indices[cond_dims.size() - 1]][k];
-//#pragma omp simd reduction(+:z)
-        for (int j = 0; j < cond_dims.size() - 1; ++j) {
-            z += dataset->dataset_columns[cond_indices[j]][k] * cum_levels[j];
+    if (sample_level_threads > 1) {
+#pragma omp parallel for num_threads(sample_level_threads)
+        for (int k = 0; k < dataset->num_instance; ++k) {
+            int x = dataset->dataset_columns[indexx][k];
+            int y = dataset->dataset_columns[indexy][k];
+            int z = dataset->dataset_columns[cond_indices[cond_dims.size() - 1]][k];
+            for (int j = 0; j < cond_dims.size() - 1; ++j) {
+                z += dataset->dataset_columns[cond_indices[j]][k] * cum_levels[j];
+            }
+#pragma omp atomic
+            n[z * dimx * dimy + x * dimy + y]++;
         }
-
-//        int z = dataset->dataset_columns[cond_indices[0]][k];
-//        for (int j = 1; j < cond_dims.size(); ++j) {
-//            z *= cond_dims[j];
-////            z += dataset->dataset_all_vars[k][cond_indices[j]];
-//            z += dataset->dataset_columns[cond_indices[j]][k];
-//        }
-        n[z * dimx * dimy + x * dimy + y]++;
+    } else {
+        for (int k = 0; k < dataset->num_instance; ++k) {
+            int x = dataset->dataset_columns[indexx][k];
+            int y = dataset->dataset_columns[indexy][k];
+            int z = dataset->dataset_columns[cond_indices[cond_dims.size() - 1]][k];
+            for (int j = 0; j < cond_dims.size() - 1; ++j) {
+                z += dataset->dataset_columns[cond_indices[j]][k] * cum_levels[j];
+            }
+            n[z * dimx * dimy + x * dimy + y]++;
+        }
     }
 }
 
@@ -361,16 +370,25 @@ void Counts3DGroup::CountLevel1(Dataset *dataset, int group_size) {
 //        }
 //    }
 
-    for (int k = 0; k < dataset->num_instance; ++k) {
-//        int x = dataset->dataset_all_vars[k][indices[0]];
-//        int y = dataset->dataset_all_vars[k][indices[1]];
-        int x = dataset->dataset_columns[indexx][k];
-        int y = dataset->dataset_columns[indexy][k];
-
-        for (int i = 0; i < group_size; ++i) {
-            int z = dataset->dataset_columns[cond_indices[i]][k];
-//            n[i][z * dimx * dimy + x * dimy + y]++; //n[i][z][x][y]++;
-            n[z * dimx * dimy + x * dimy + y + offset_xy[i]]++; //n[i][z][x][y]++;
+    if (sample_level_threads > 1) {
+#pragma omp parallel for num_threads(sample_level_threads)
+        for (int k = 0; k < dataset->num_instance; ++k) {
+            int x = dataset->dataset_columns[indexx][k];
+            int y = dataset->dataset_columns[indexy][k];
+            for (int i = 0; i < group_size; ++i) {
+                int z = dataset->dataset_columns[cond_indices[i]][k];
+#pragma omp atomic
+                n[z * dimx * dimy + x * dimy + y + offset_xy[i]]++;
+            }
+        }
+    } else {
+        for (int k = 0; k < dataset->num_instance; ++k) {
+            int x = dataset->dataset_columns[indexx][k];
+            int y = dataset->dataset_columns[indexy][k];
+            for (int i = 0; i < group_size; ++i) {
+                int z = dataset->dataset_columns[cond_indices[i]][k];
+                n[z * dimx * dimy + x * dimy + y + offset_xy[i]]++;
+            }
         }
     }
 
@@ -406,19 +424,31 @@ void Counts3DGroup::CountLevelN(Dataset *dataset, int group_size) {
 //        }
 //    }
 
-    for (int k = 0; k < dataset->num_instance; ++k) {
-//        int x = dataset->dataset_all_vars[k][indices[0]];
-//        int y = dataset->dataset_all_vars[k][indices[1]];
-        int x = dataset->dataset_columns[indexx][k];
-        int y = dataset->dataset_columns[indexy][k];
-
-        for (int i = 0; i < group_size; ++i) {
-            int z = 0;
-            for (int j = 0; j < c_depth; ++j) {
-//                z += dataset->dataset_all_vars[k][cond_indices[i * c_depth + j]] * cum_levels[i * c_depth + j];
-                z += dataset->dataset_columns[cond_indices[i * c_depth + j]][k] * cum_levels[i * c_depth + j];
+    if (sample_level_threads > 1) {
+#pragma omp parallel for num_threads(sample_level_threads)
+        for (int k = 0; k < dataset->num_instance; ++k) {
+            int x = dataset->dataset_columns[indexx][k];
+            int y = dataset->dataset_columns[indexy][k];
+            for (int i = 0; i < group_size; ++i) {
+                int z = 0;
+                for (int j = 0; j < c_depth; ++j) {
+                    z += dataset->dataset_columns[cond_indices[i * c_depth + j]][k] * cum_levels[i * c_depth + j];
+                }
+#pragma omp atomic
+                n[z * dimx * dimy + x * dimy + y + offset_xy[i]]++;
             }
-            n[z * dimx * dimy + x * dimy + y + offset_xy[i]]++; //n[i][z][x][y]++;
+        }
+    } else {
+        for (int k = 0; k < dataset->num_instance; ++k) {
+            int x = dataset->dataset_columns[indexx][k];
+            int y = dataset->dataset_columns[indexy][k];
+            for (int i = 0; i < group_size; ++i) {
+                int z = 0;
+                for (int j = 0; j < c_depth; ++j) {
+                    z += dataset->dataset_columns[cond_indices[i * c_depth + j]][k] * cum_levels[i * c_depth + j];
+                }
+                n[z * dimx * dimy + x * dimy + y + offset_xy[i]]++;
+            }
         }
     }
 
@@ -432,12 +462,20 @@ void Counts2D::FillTable(Dataset *dataset, Timer *timer) {
      * compute the joint frequency of x, y, and z (Nxyz)
      */
 //    timer->Start("config + count");
-    for (int k = 0; k < dataset->num_instance; ++k) {
-//        int x = dataset->dataset_all_vars[k][indices[0]];
-//        int y = dataset->dataset_all_vars[k][indices[1]];
-        int x = dataset->dataset_columns[indexx][k];
-        int y = dataset->dataset_columns[indexy][k];
-        n[x * dimy + y]++;
+    if (sample_level_threads > 1) {
+#pragma omp parallel for num_threads(sample_level_threads)
+        for (int k = 0; k < dataset->num_instance; ++k) {
+            int x = dataset->dataset_columns[indexx][k];
+            int y = dataset->dataset_columns[indexy][k];
+#pragma omp atomic
+            n[x * dimy + y]++;
+        }
+    } else {
+        for (int k = 0; k < dataset->num_instance; ++k) {
+            int x = dataset->dataset_columns[indexx][k];
+            int y = dataset->dataset_columns[indexy][k];
+            n[x * dimy + y]++;
+        }
     }
 //    timer->Stop("config + count");
 

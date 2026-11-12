@@ -4,11 +4,12 @@
 
 #include "fastpgm/structure_learning/PCStable.h"
 
-PCStable::PCStable(Network *net, double a, int d) {
+PCStable::PCStable(Network *net, double a, int d, int par_type) {
     network = net;
     num_ci_test = 0;
     depth = d;
     alpha = a;
+    parallelism_type = par_type;
 }
 
 PCStable::~PCStable() {
@@ -78,6 +79,7 @@ void PCStable::StructLearnCompData(Dataset *dts, int group_size, int num_threads
     }
     timer->Print("pc-stable");
 
+    sample_level_threads = 1;
     SAFE_DELETE(timer);
 }
 
@@ -126,11 +128,14 @@ void PCStable::StructLearnByPCStable(Dataset *dts, int num_threads, int group_si
         adjacencies.insert(make_pair(i, adjacency));
     }
 
+    sample_level_threads = (parallelism_type == 2) ? num_threads : 1;
+    int num_threads_level0 = (parallelism_type == 2) ? 1 : num_threads;
+
     /**
      * handles level (depth) 0. since the conditioning set is an empty set, only one CI test is required for each edge,
      * which is a marginal independence test. thus, we don't need the CI-level parallelism in level (depth) 0.
      */
-#pragma omp parallel for num_threads(num_threads)
+#pragma omp parallel for num_threads(num_threads_level0)
     for (int i = 0; i < network->num_edges; ++i) {
         int node_idx1 = network->vec_edges[i].GetNode1()->GetNodeIndex();
         int node_idx2 = network->vec_edges[i].GetNode2()->GetNodeIndex();
@@ -271,54 +276,73 @@ bool PCStable::SearchAtDepth(Dataset *dts, int c_depth, int num_threads, map<int
      */
     map<int, map<int, double>> adjacencies_copy = adjacencies;
 
-    // push all edges into stack
-    stack<int> stack_edge_id;
-    for (int i = network->num_edges - 1; i >= 0; --i) {
-        network->vec_edges[i].process = NO;
-        stack_edge_id.push(i);
-    }
-
-    int processing_edge_id[128];
-    bool need_to_push[128];
-    while (stack_edge_id.size() >= 128) {
-        // pop 128 edges at one time
-        for (int i = 0; i < 128; ++i) {
-            processing_edge_id[i] = stack_edge_id.top();
-            stack_edge_id.pop();
+    if (parallelism_type == 1) { // Edge-level parallelism
+        for (int i = 0; i < network->num_edges; ++i) {
+            network->vec_edges[i].process = NO;
         }
-
-#pragma omp parallel for num_threads(num_threads)
-        for (int i = 0; i < 128; ++i) {
-            need_to_push[i] = CheckEdge(dts, adjacencies_copy, c_depth, processing_edge_id[i],
-                                        timer, group_size, verbose);
-        }
-
-        for (int i = 127; i >= 0; --i) {
-            if (need_to_push[i]) {
-                // if this edge has not been finished, push back to the stack
-                stack_edge_id.push(processing_edge_id[i]);
+#pragma omp parallel for num_threads(num_threads) schedule(dynamic)
+        for (int i = 0; i < network->num_edges; ++i) {
+            while (CheckEdge(dts, adjacencies_copy, c_depth, i, timer, group_size, verbose)) {
             }
         }
-    }
-
-    while (!stack_edge_id.empty()) { // have 1~127 left
-        int size = stack_edge_id.size();
-        for (int i = 0; i < size; ++i) {
-            processing_edge_id[i] = stack_edge_id.top();
-            stack_edge_id.pop();
+    } else if (parallelism_type == 2) { // Sample-level parallelism
+        for (int i = 0; i < network->num_edges; ++i) {
+            network->vec_edges[i].process = NO;
+        }
+        for (int i = 0; i < network->num_edges; ++i) {
+            while (CheckEdge(dts, adjacencies_copy, c_depth, i, timer, group_size, verbose)) {
+            }
+        }
+    } else { // CI-level parallelism (default Fast-BNS)
+        // push all edges into stack
+        stack<int> stack_edge_id;
+        for (int i = network->num_edges - 1; i >= 0; --i) {
+            network->vec_edges[i].process = NO;
+            stack_edge_id.push(i);
         }
 
-        int p = (size > num_threads) ? num_threads : size;
+        int processing_edge_id[128];
+        bool need_to_push[128];
+        while (stack_edge_id.size() >= 128) {
+            // pop 128 edges at one time
+            for (int i = 0; i < 128; ++i) {
+                processing_edge_id[i] = stack_edge_id.top();
+                stack_edge_id.pop();
+            }
+
+#pragma omp parallel for num_threads(num_threads)
+            for (int i = 0; i < 128; ++i) {
+                need_to_push[i] = CheckEdge(dts, adjacencies_copy, c_depth, processing_edge_id[i],
+                                            timer, group_size, verbose);
+            }
+
+            for (int i = 127; i >= 0; --i) {
+                if (need_to_push[i]) {
+                    // if this edge has not been finished, push back to the stack
+                    stack_edge_id.push(processing_edge_id[i]);
+                }
+            }
+        }
+
+        while (!stack_edge_id.empty()) { // have 1~127 left
+            int size = stack_edge_id.size();
+            for (int i = 0; i < size; ++i) {
+                processing_edge_id[i] = stack_edge_id.top();
+                stack_edge_id.pop();
+            }
+
+            int p = (size > num_threads) ? num_threads : size;
 #pragma omp parallel for num_threads(p)
-        for (int i = 0; i < size; ++i) {
-            need_to_push[i] = CheckEdge(dts, adjacencies_copy, c_depth, processing_edge_id[i],
-                                        timer, group_size, verbose);
-        }
+            for (int i = 0; i < size; ++i) {
+                need_to_push[i] = CheckEdge(dts, adjacencies_copy, c_depth, processing_edge_id[i],
+                                            timer, group_size, verbose);
+            }
 
-        for (int i = size - 1; i >= 0; --i) {
-            if (need_to_push[i]) {
-                // if this edge has not been finished, push back to the stack
-                stack_edge_id.push(processing_edge_id[i]);
+            for (int i = size - 1; i >= 0; --i) {
+                if (need_to_push[i]) {
+                    // if this edge has not been finished, push back to the stack
+                    stack_edge_id.push(processing_edge_id[i]);
+                }
             }
         }
     }

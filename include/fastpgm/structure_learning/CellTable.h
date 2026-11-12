@@ -10,6 +10,8 @@
 #include <omp.h>
 #include <stdint.h>
 
+extern int sample_level_threads;
+
 /**----------------------------- implementations like bnlearn -----------------------------**/
 /**
  * three-dimensional contingency table

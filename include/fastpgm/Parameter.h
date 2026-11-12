@@ -25,6 +25,7 @@ public:
 
     int group_size; // for PC-Stable
     double alpha; // for PC-Stable
+    int parallelism_type; // 0: CI-level (default), 1: Edge-level, 2: Sample-level
 
     int class_variable; // for sample generator
 

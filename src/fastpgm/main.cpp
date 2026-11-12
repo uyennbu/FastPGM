@@ -42,6 +42,7 @@ int main(int argc, char** argv) {
 
         cout << "==================================================" << endl;
         cout << "Job: PC-stable for structure learning, #threads = " << param.num_threads << endl;
+        cout << "\tparallelism type = " << (param.parallelism_type == 1 ? "Edge-level" : (param.parallelism_type == 2 ? "Sample-level" : "CI-level")) << endl;
         cout << "\tgroup size = " << param.group_size << endl;
         cout << "\treference BN: " << param.ref_net_file << endl;
         cout << "\tsample set: " << param.train_set_file << endl;
@@ -54,7 +55,7 @@ int main(int argc, char** argv) {
 
         BNSL_PCStable(param.verbose, param.num_threads, param.group_size,
                       param.alpha, ref_file, dpath + param.train_set_file,
-                      param.save_struct);
+                      param.save_struct, param.parallelism_type);
     }
 
     /**
@@ -85,7 +86,7 @@ int main(int argc, char** argv) {
 
         BNL_PCStable(param.verbose, param.num_threads, param.group_size, param.alpha,
                      ref_file, dpath + param.train_set_file, param.save_struct,
-                     param.save_param);
+                     param.save_param, param.parallelism_type);
     }
 
     /**

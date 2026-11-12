@@ -26,6 +26,7 @@ public:
     int depth = 1000; // The maximum number of nodes conditioned on in the search. The default it 1000.
     int num_ci_test;
     double alpha;
+    int parallelism_type = 0; // 0: CI-level, 1: Edge-level, 2: Sample-level
     /**
      * Stores a map from pairs of nodes (key) to separating sets (value) --
      * for each unordered pair of nodes {node1, node2} in a graph,
@@ -34,7 +35,7 @@ public:
      */
     map<pair<int, int>, set<int>> sepset;
 
-    PCStable(Network *net, double a, int d = 1000);
+    PCStable(Network *net, double a, int d = 1000, int par_type = 0);
     ~PCStable();
 
     virtual void StructLearnCompData(Dataset *dts, int group_size, int num_threads,

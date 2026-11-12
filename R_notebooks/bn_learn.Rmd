@@ -1,0 +1,366 @@
+---
+title: "Xây Dựng Mạng Bayes bằng bnlearn (Thuật toán PC-stable)"
+subtitle: "Đo lường thời gian thực thi trên từng bộ dữ liệu: Alarm, Insurance, Hepar2, Munin1 và so sánh với FastBN"
+output:
+  html_notebook:
+    toc: true
+    toc_depth: 3
+    theme: readable
+---
+
+## 1. Cài đặt & Nạp Thư viện
+
+`bnlearn` yêu cầu dữ liệu đầu vào cho mạng Bayes rời rạc (Discrete BN) phải ở định dạng **`factor`** (hoặc `numeric` đối với mạng liên tục Gauss). Nếu dữ liệu ở dạng `character` hoặc chuỗi thô, thuật toán sẽ báo lỗi. 
+
+Đặc biệt, hàm `check.data()` trong `bnlearn` yêu cầu **mỗi biến phải có ít nhất 2 levels** (`nlevels >= 2`). Nếu một biến chỉ có 1 giá trị duy nhất trong toàn bộ tập mẫu (phương sai bằng 0, biến hằng số), các phép kiểm định thống kê ($G^2$, $\chi^2$) sẽ có bậc tự do $df = 0$, dẫn đến lỗi:
+`Error in check.data(x, allow.missing = TRUE) : variable ... in the data must have at least two levels.`
+
+Do đó, toàn bộ dữ liệu trước khi học cấu trúc cần được:
+1. Ép kiểu tường minh về dạng `factor`.
+2. Kiểm tra và tự động loại bỏ các biến hằng số (chỉ có 1 level) trước khi đưa vào `pc.stable()`.
+3. Sau khi học xong cấu trúc, các biến hằng số này được thêm lại vào mạng dưới dạng các nút cô lập (*isolated nodes*) thông qua `bnlearn::add.node()`.
+
+```{r setup, message=FALSE, warning=FALSE}
+if (!requireNamespace("bnlearn", quietly = TRUE)) {
+  install.packages("bnlearn")
+}
+library(bnlearn)
+library(parallel)
+
+# Đường dẫn thư mục dataset
+DATASET_DIR <- if (dir.exists("../dataset")) "../dataset" else "dataset"
+cat("Thư mục dataset:", normalizePath(DATASET_DIR), "\n")
+```
+
+## 2. Hàm Tiền Xử Lý Dữ Liệu & Đo Thời Gian
+
+```{r helper_functions}
+# Hàm đọc file CSV, ép kiểu factor và xử lý biến hằng số (< 2 levels)
+load_and_preprocess <- function(file_path, drop_single_level = TRUE) {
+  if (!file.exists(file_path)) {
+    stop(sprintf("Không tìm thấy file dữ liệu: %s", file_path))
+  }
+  # Đọc file CSV
+  df <- read.csv(file_path, stringsAsFactors = TRUE)
+  
+  # Đảm bảo toàn bộ các cột là factor
+  df[] <- lapply(df, as.factor)
+  
+  # Kiểm tra các biến hằng số (chỉ có 1 level)
+  single_level_cols <- sapply(df, function(x) nlevels(x) < 2)
+  dropped_nodes <- character(0)
+  
+  if (any(single_level_cols)) {
+    dropped_nodes <- names(df)[single_level_cols]
+    if (drop_single_level) {
+      cat(sprintf("   [TỰ ĐỘNG XỬ LÝ] Phát hiện %d biến hằng số (chỉ có 1 level duy nhất, vd: %s).\n", 
+                  length(dropped_nodes), paste(head(dropped_nodes, 3), collapse = ", ")))
+      cat("   -> Tạm thời tách khỏi dữ liệu trước khi chạy pc.stable() để tránh lỗi check.data().\n")
+      df <- df[, !single_level_cols]
+    }
+  }
+  
+  return(list(
+    data           = df, 
+    dropped_nodes  = dropped_nodes, 
+    total_vars     = length(single_level_cols)
+  ))
+}
+
+# Hàm huấn luyện PC-stable và đo thời gian thực thi (giây)
+run_pc_experiment <- function(prep_result, net_name, s_size, alpha = 0.05, ci_test = "mi") {
+  df            <- prep_result$data
+  dropped_nodes <- prep_result$dropped_nodes
+  total_vars    <- prep_result$total_vars
+  
+  cat(sprintf("-> Chạy PC-stable trên %s (mẫu: %d, biến đưa vào học: %d/%d)...\n", 
+              net_name, s_size, ncol(df), total_vars))
+  
+  t_start <- proc.time()
+  bn_model <- pc.stable(df, test = ci_test, alpha = alpha)
+  
+  # Thêm lại các biến hằng số vào đồ thị dưới dạng nút cô lập (isolated nodes)
+  if (length(dropped_nodes) > 0) {
+    for (node in dropped_nodes) {
+      bn_model <- add.node(bn_model, node)
+    }
+  }
+  t_elapsed <- as.numeric((proc.time() - t_start)["elapsed"])
+  
+  n_arcs <- narcs(bn_model)
+  cat(sprintf("   Hoàn thành: %.4f giây | Tổng số biến trong mạng: %d | Số cạnh tìm được: %d\n", 
+              t_elapsed, length(nodes(bn_model)), n_arcs))
+  
+  return(data.frame(
+    Dataset          = net_name,
+    Samples          = s_size,
+    Nodes            = length(nodes(bn_model)),
+    Active_Nodes     = ncol(df),
+    Constant_Nodes   = length(dropped_nodes),
+    Learned_Arcs     = n_arcs,
+    Time_bnlearn_sec = t_elapsed
+  ))
+}
+
+# Danh sách kích thước mẫu khảo sát
+SAMPLE_SIZES <- c(5000, 10000, 15000)
+
+# Khởi tạo bảng tổng hợp kết quả
+all_results <- list()
+```
+
+---
+
+## 3. Bộ Dữ Liệu 1: ALARM Network
+
+- **Bản chất bài toán:** *A Logical Alarm Reduction Mechanism* - Hệ thống giám sát sinh hiệu bệnh nhân gây mê và hồi sức cấp cứu (ICU).
+- **Quy mô:** 37 biến (nodes), tất cả các biến đều có $\ge 2$ levels.
+
+```{r alarm_section}
+cat("=== THỰC NGHIỆM TRÊN MẠNG ALARM ===\n")
+alarm_results <- list()
+
+for (s_size in SAMPLE_SIZES) {
+  file_path <- file.path(DATASET_DIR, "alarm", sprintf("alarm_s%d", s_size))
+  
+  # 1. Đọc và tiền xử lý
+  prep_alarm <- load_and_preprocess(file_path)
+  
+  # 2. Học cấu trúc với PC-stable
+  res <- run_pc_experiment(prep_alarm, "alarm", s_size)
+  alarm_results[[as.character(s_size)]] <- res
+}
+
+df_alarm_res <- do.call(rbind, alarm_results)
+all_results[["alarm"]] <- df_alarm_res
+print(df_alarm_res)
+```
+
+---
+
+## 4. Bộ Dữ Liệu 2: INSURANCE Network
+
+- **Bản chất bài toán:** Đánh giá mức độ rủi ro và ước tính chi phí bồi thường bảo hiểm xe cơ giới.
+- **Quy mô:** 27 biến (nodes), tất cả các biến đều có $\ge 2$ levels.
+
+```{r insurance_section}
+cat("=== THỰC NGHIỆM TRÊN MẠNG INSURANCE ===\n")
+insurance_results <- list()
+
+for (s_size in SAMPLE_SIZES) {
+  file_path <- file.path(DATASET_DIR, "insurance", sprintf("insurance_s%d", s_size))
+  
+  # 1. Đọc và tiền xử lý
+  prep_insurance <- load_and_preprocess(file_path)
+  
+  # 2. Học cấu trúc với PC-stable
+  res <- run_pc_experiment(prep_insurance, "insurance", s_size)
+  insurance_results[[as.character(s_size)]] <- res
+}
+
+df_insurance_res <- do.call(rbind, insurance_results)
+all_results[["insurance"]] <- df_insurance_res
+print(df_insurance_res)
+```
+
+---
+
+## 5. Bộ Dữ Liệu 3: HEPAR2 Network
+
+- **Bản chất bài toán:** Hệ thống chuyên gia hỗ trợ chẩn đoán lâm sàng các bệnh lý rối loạn về gan (Disorders of the liver).
+- **Quy mô:** 70 biến (nodes), tất cả các biến đều có $\ge 2$ levels.
+
+```{r hepar2_section}
+cat("=== THỰC NGHIỆM TRÊN MẠNG HEPAR2 ===\n")
+hepar2_results <- list()
+
+for (s_size in SAMPLE_SIZES) {
+  file_path <- file.path(DATASET_DIR, "hepar2", sprintf("hepar2_s%d", s_size))
+  
+  # 1. Đọc và tiền xử lý
+  prep_hepar2 <- load_and_preprocess(file_path)
+  
+  # 2. Học cấu trúc với PC-stable
+  res <- run_pc_experiment(prep_hepar2, "hepar2", s_size)
+  hepar2_results[[as.character(s_size)]] <- res
+}
+
+df_hepar2_res <- do.call(rbind, hepar2_results)
+all_results[["hepar2"]] <- df_hepar2_res
+print(df_hepar2_res)
+```
+
+---
+
+## 6. Bộ Dữ Liệu 4: MUNIN1 Network
+
+- **Bản chất bài toán:** Chẩn đoán các bệnh lý thần kinh cơ dựa trên kết quả điện cơ đồ (Electromyography - EMG).
+- **Quy mô:** 186 biến (nodes), là mạng có quy mô lớn nhất.
+- **Lý do xảy ra lỗi trước đó:** Trong file cấu hình gốc `munin1.bif`, có 34 biến lâm sàng có xác suất cố định $P = 1.0$ ở một trạng thái (ví dụ biến `R_LNLT1_APB_DENERV` luôn bằng `"NO"`). Khi sinh mẫu, 34 biến này là biến hằng số (chỉ có 1 level). `bnlearn` yêu cầu dữ liệu phải có ít nhất 2 levels nên hàm `load_and_preprocess()` đã tự động tách 34 biến này ra trước khi chạy `pc.stable()`, sau đó dùng `add.node()` đưa lại vào mạng dưới dạng các nút cô lập, đảm bảo mạng đủ 186 biến mà không bị lỗi.
+
+```{r munin1_section}
+cat("=== THỰC NGHIỆM TRÊN MẠNG MUNIN1 ===\n")
+munin1_results <- list()
+
+for (s_size in SAMPLE_SIZES) {
+  file_path <- file.path(DATASET_DIR, "munin1", sprintf("munin1_s%d", s_size))
+  
+  # 1. Đọc và tiền xử lý (tự động tách các biến 1 level)
+  prep_munin1 <- load_and_preprocess(file_path)
+  
+  # 2. Học cấu trúc với PC-stable và khôi phục các nút cô lập
+  res <- run_pc_experiment(prep_munin1, "munin1", s_size)
+  munin1_results[[as.character(s_size)]] <- res
+}
+
+df_munin1_res <- do.call(rbind, munin1_results)
+all_results[["munin1"]] <- df_munin1_res
+print(df_munin1_res)
+```
+
+---
+
+## 7. Bảng Tổng Hợp & So Sánh với FastBN (FastPGM)
+
+```{r summary_comparison}
+# Gom tất cả kết quả đo của bnlearn
+df_all_bnlearn <- do.call(rbind, all_results)
+rownames(df_all_bnlearn) <- NULL
+
+# Bảng tham chiếu thời gian FastBN đo trên cùng máy (đơn vị: giây)
+fastbn_ref <- data.frame(
+  Dataset        = c("alarm", "alarm", "alarm",
+                     "insurance", "insurance", "insurance",
+                     "hepar2", "hepar2", "hepar2",
+                     "munin1", "munin1", "munin1"),
+  Samples        = rep(c(5000, 10000, 15000), 4),
+  FastBN_seq_sec = c(0.078,   0.151,   0.193,     # alarm
+                     0.123,   0.293,   0.542,     # insurance
+                     0.813,   3.550,   8.619,     # hepar2
+                     8.040,   19.014,  28.702),   # munin1
+  FastBN_par_sec = c(0.026,   0.050,   0.084,     # alarm (par 8t)
+                     0.040,   0.182,   0.265,     # insurance
+                     0.254,   1.177,   2.502,     # hepar2
+                     2.124,   5.382,   12.350)    # munin1
+)
+
+# Kết hợp dữ liệu
+df_comp <- merge(df_all_bnlearn, fastbn_ref, by = c("Dataset", "Samples"))
+
+# Bổ sung 2 cột Speedup:
+# 1. Speedup của FastBN tuần tự (seq) so với bnlearn
+df_comp$Speedup_FastBN_seq_vs_bnlearn <- round(df_comp$Time_bnlearn_sec / df_comp$FastBN_seq_sec, 2)
+
+# 2. Speedup của FastBN song song (par) so với bnlearn
+df_comp$Speedup_FastBN_par_vs_bnlearn <- round(df_comp$Time_bnlearn_sec / df_comp$FastBN_par_sec, 2)
+
+# Sắp xếp theo kích thước mạng và mẫu
+df_comp$Dataset <- factor(df_comp$Dataset, levels = c("alarm", "insurance", "hepar2", "munin1"))
+df_comp <- df_comp[order(df_comp$Dataset, df_comp$Samples), ]
+rownames(df_comp) <- NULL
+
+cat("\n=== BẢNG TỔNG HỢP SO SÁNH THỜI GIAN THỰC THI & SPEEDUP ===\n")
+print(df_comp)
+```
+
+---
+
+## 8. Biểu Đồ Trực Quan Hóa Thời Gian Thực Thi (Thời Gian Thực - Linear Scale)
+
+So sánh thời gian thực thi thực tế (giây) giữa `bnlearn` và `FastBN` trên thang đo tuyến tính (Linear scale, không dùng Log10). Để quan sát rõ ràng ở cả mạng nhỏ (vài giây) và mạng lớn (hàng chục/trăm giây), biểu đồ được chia thành 4 khung riêng cho từng bộ dữ liệu.
+
+```{r plot_real_time, fig.width=11, fig.height=8}
+par(mfrow = c(2, 2), mar = c(4, 4.5, 3, 1))
+
+DATASETS_LIST <- c("alarm", "insurance", "hepar2", "munin1")
+
+for (net in DATASETS_LIST) {
+  sub_df <- df_comp[df_comp$Dataset == net, ]
+  
+  mat_sub <- rbind(
+    `bnlearn (seq)`    = sub_df$Time_bnlearn_sec,
+    `FastBN (seq, 1t)` = sub_df$FastBN_seq_sec,
+    `FastBN (par)`     = sub_df$FastBN_par_sec
+  )
+  colnames(mat_sub) <- paste0(sub_df$Samples / 1000, "k mẫu")
+  
+  max_val <- max(mat_sub, na.rm = TRUE)
+  
+  barplot(
+    mat_sub,
+    beside = TRUE,
+    col = c("#E41A1C", "#377EB8", "#4DAF4A"),
+    main = sprintf("Mạng %s (%d biến)", toupper(net), sub_df$Nodes[1]),
+    xlab = "Kích thước mẫu",
+    ylab = "Thời gian thực thi (giây)",
+    ylim = c(0, max_val * 1.25)
+  )
+  
+  legend(
+    "topleft",
+    legend = c("bnlearn (seq)", "FastBN (seq)", "FastBN (par)"),
+    fill = c("#E41A1C", "#377EB8", "#4DAF4A"),
+    bty = "n",
+    cex = 0.85
+  )
+  grid(nx = NA, ny = NULL, col = "gray", lty = "dotted")
+}
+
+# Reset cấu hình đồ thị
+par(mfrow = c(1, 1))
+```
+
+---
+
+## 9. Biểu Đồ Trực Quan Hóa Độ Tăng Tốc (Speedup)
+
+Biểu đồ thể hiện độ tăng tốc của **FastBN tuần tự** và **FastBN song song** so với `bnlearn` làm mốc chuẩn ($1\times$). Giá trị càng cao thể hiện FastBN nhanh hơn `bnlearn` bấy nhiêu lần.
+
+```{r plot_speedup, fig.width=11, fig.height=6}
+# Chuẩn bị ma trận dữ liệu Speedup
+labels_sp <- paste(df_comp$Dataset, sprintf("%dk", df_comp$Samples / 1000), sep = "\n")
+
+mat_speedup <- rbind(
+  `FastBN (seq) vs bnlearn` = df_comp$Speedup_FastBN_seq_vs_bnlearn,
+  `FastBN (par) vs bnlearn` = df_comp$Speedup_FastBN_par_vs_bnlearn
+)
+colnames(mat_speedup) <- labels_sp
+
+max_sp <- max(mat_speedup, na.rm = TRUE)
+
+barplot(
+  mat_speedup,
+  beside = TRUE,
+  col = c("#377EB8", "#4DAF4A"),
+  main = "Độ Tăng Tốc (Speedup) của FastBN so với bnlearn",
+  xlab = "Bộ Dữ Liệu & Kích Thước Mẫu",
+  ylab = "Speedup (lần)",
+  las = 2,
+  ylim = c(0, max_sp * 1.2)
+)
+
+# Đường chuẩn 1x (ngang bằng bnlearn)
+abline(h = 1, lty = 2, col = "#E41A1C", lwd = 2)
+
+legend(
+  "topleft",
+  legend = c("Mốc bnlearn (1x)", "FastBN (seq) vs bnlearn", "FastBN (par) vs bnlearn"),
+  fill = c(NA, "#377EB8", "#4DAF4A"),
+  border = c(NA, "black", "black"),
+  lty = c(2, NA, NA),
+  col = c("#E41A1C", NA, NA),
+  lwd = c(2, NA, NA),
+  bty = "n"
+)
+grid(nx = NA, ny = NULL, col = "gray", lty = "dotted")
+```
+
+---
+
+## 10. Xuất Kết Quả Ra CSV
+
+```{r save_results}
+out_csv <- "bnlearn_vs_fastbn_benchmark.csv"
+write.csv(df_comp, out_csv, row.names = FALSE)
+cat(sprintf("Đã lưu kết quả so sánh đầy đủ vào: %s\n", out_csv))
+```

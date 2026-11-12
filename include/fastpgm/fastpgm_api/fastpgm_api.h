@@ -22,10 +22,10 @@ using namespace std;
 string GetLastPath(const string& path);
 void BNSL_PCStable(int verbose, int n_threads, int group_size,
                    double alpha, string ref_net, string train_set,
-                   bool save_struct);
+                   bool save_struct, int parallelism_type = 0);
 void BNL_PCStable(int verbose, int n_threads, int group_size,
                   double alpha, string ref_net, string train_set,
-                  bool save_struct, bool save_param);
+                  bool save_struct, bool save_param, int parallelism_type = 0);
 void BNEI_JT(int verbose, int n_threads,
              string net, string test_set, string pt);
 void C_PCStable_JT(int verbose, int n_threads, int group_size, double alpha,

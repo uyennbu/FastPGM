@@ -17,13 +17,13 @@ string GetLastPath(const string& path) {
 
 void BNSL_PCStable(int verbose, int n_threads, int group_size,
                    double alpha, string ref_net, string train_set,
-                   bool save_struct) {
+                   bool save_struct, int parallelism_type) {
 
     Dataset *trainer = new Dataset(); // todo: decide whether the dataset is in libsvm format or in csv format
     trainer->LoadCSVTrainingData(train_set, true, 0);
 
     Network *network = new Network(true);
-    StructureLearning *bnsl = new PCStable(network, alpha);
+    StructureLearning *bnsl = new PCStable(network, alpha, 1000, parallelism_type);
     // for structure learning, we don't change to dag or add ROOT
     bnsl->StructLearnCompData(trainer, group_size, n_threads,false, false,
                               save_struct, train_set + "_struct", verbose);
@@ -45,13 +45,13 @@ void BNSL_PCStable(int verbose, int n_threads, int group_size,
 
 void BNL_PCStable(int verbose, int n_threads, int group_size,
                   double alpha, string ref_net, string train_set,
-                  bool save_struct, bool save_param) {
+                  bool save_struct, bool save_param, int parallelism_type) {
 
     Dataset *trainer = new Dataset(); // todo: decide whether the dataset is in libsvm format or in csv format
     trainer->LoadCSVTrainingData(train_set, true, 0);
 
     Network *network = new Network(true);
-    StructureLearning *bnsl = new PCStable(network, alpha);
+    StructureLearning *bnsl = new PCStable(network, alpha, 1000, parallelism_type);
     // for learning, we don't change to dag or add ROOT
     bnsl->StructLearnCompData(trainer, group_size, n_threads,false, false,
                               save_struct, train_set + "_struct", verbose);
