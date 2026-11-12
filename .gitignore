@@ -8,3 +8,9 @@ eigen
 
 # dataset
 # !dataset/alarm/
+
+# figures
+notebooks/figures/
+notebooks/figures_*/
+figures/
+**/figures/
